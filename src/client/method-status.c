@@ -5,6 +5,7 @@
  */
 #include "method-status.h"
 #include "client.h"
+#include "usage.h"
 
 #include "libbluechi/bus/utils.h"
 #include "libbluechi/common/common.h"
@@ -239,9 +240,9 @@ static void print_unit_info(unit_info_t *unit_info, size_t name_col_width) {
         PRINT_AND_ALIGN(sub_state);
         PRINT_AND_ALIGN(freezer_state);
         PRINT_AND_ALIGN(unit_file_state);
-        fflush(stdout);
-
         fprintf(stdout, "|\n");
+
+        fflush(stdout);
 }
 
 static size_t get_max_name_len(char **units, size_t units_count) {
@@ -783,4 +784,19 @@ int method_status(Command *command, void *userdata) {
                                 command->opargc - 1,
                                 command_flag_exists(command, ARG_WATCH_SHORT));
         }
+}
+
+
+void usage_method_status() {
+        usage_print_header();
+        usage_print_description("View status for units and nodes of BlueChi");
+        usage_print_usage("bluechictl status [nodename] [unitname] [options]");
+        printf("  If [nodename] and [unitname] are not given, the status of all nodes will be displayed.\n");
+        printf("  If [unitname] is not given, the status of the specific node will be displayed.\n");
+        printf("\n");
+        printf("Available options:\n");
+        printf("  --%s \t shows this help message\n", ARG_HELP);
+        printf("  --%s, -%c \t continuously watch the status of the node(s) and unit \n",
+               ARG_WATCH,
+               ARG_WATCH_SHORT);
 }

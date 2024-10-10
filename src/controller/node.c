@@ -50,14 +50,6 @@ static int node_property_get_peer_ip(
                 sd_bus_message *reply,
                 void *userdata,
                 sd_bus_error *ret_error);
-static int node_property_get_last_seen(
-                sd_bus *bus,
-                const char *path,
-                const char *interface,
-                const char *property,
-                sd_bus_message *reply,
-                void *userdata,
-                sd_bus_error *ret_error);
 
 static const sd_bus_vtable internal_controller_controller_vtable[] = {
         SD_BUS_VTABLE_START(0),
@@ -70,23 +62,34 @@ static const sd_bus_vtable node_vtable[] = {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD("ListUnits", "", UNIT_INFO_STRUCT_ARRAY_TYPESTRING, node_method_list_units, 0),
         SD_BUS_METHOD("ListUnitFiles", "", UNIT_FILE_INFO_STRUCT_ARRAY_TYPESTRING, node_method_list_unit_files, 0),
+        SD_BUS_METHOD("GetUnitFileState", "s", "s", node_method_passthrough_to_agent, 0),
         SD_BUS_METHOD("StartUnit", "ss", "o", node_method_start_unit, 0),
         SD_BUS_METHOD("StopUnit", "ss", "o", node_method_stop_unit, 0),
         SD_BUS_METHOD("FreezeUnit", "s", "", node_method_passthrough_to_agent, 0),
         SD_BUS_METHOD("ThawUnit", "s", "", node_method_passthrough_to_agent, 0),
         SD_BUS_METHOD("RestartUnit", "ss", "o", node_method_restart_unit, 0),
         SD_BUS_METHOD("ReloadUnit", "ss", "o", node_method_reload_unit, 0),
+        SD_BUS_METHOD("ResetFailed", "", "", node_method_passthrough_to_agent, 0),
+        SD_BUS_METHOD("ResetFailedUnit", "s", "", node_method_passthrough_to_agent, 0),
         SD_BUS_METHOD("GetUnitProperties", "ss", "a{sv}", node_method_passthrough_to_agent, 0),
         SD_BUS_METHOD("GetUnitProperty", "sss", "v", node_method_passthrough_to_agent, 0),
         SD_BUS_METHOD("SetUnitProperties", "sba(sv)", "", node_method_set_unit_properties, 0),
         SD_BUS_METHOD("EnableUnitFiles", "asbb", "ba(sss)", node_method_passthrough_to_agent, 0),
         SD_BUS_METHOD("DisableUnitFiles", "asb", "a(sss)", node_method_passthrough_to_agent, 0),
         SD_BUS_METHOD("Reload", "", "", node_method_passthrough_to_agent, 0),
+        SD_BUS_METHOD("KillUnit", "ssi", "", node_method_passthrough_to_agent, 0),
         SD_BUS_METHOD("SetLogLevel", "s", "", node_method_set_log_level, 0),
+        SD_BUS_METHOD("GetDefaultTarget", "", "s", node_method_passthrough_to_agent, 0),
+        SD_BUS_METHOD("SetDefaultTarget", "sb", "a(sss)", node_method_passthrough_to_agent, 0),
         SD_BUS_PROPERTY("Name", "s", NULL, offsetof(Node, name), SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("Status", "s", node_property_get_status, 0, SD_BUS_VTABLE_PROPERTY_EMITS_CHANGE),
         SD_BUS_PROPERTY("PeerIp", "s", node_property_get_peer_ip, 0, SD_BUS_VTABLE_PROPERTY_EXPLICIT),
-        SD_BUS_PROPERTY("LastSeenTimestamp", "t", node_property_get_last_seen, 0, SD_BUS_VTABLE_PROPERTY_EXPLICIT),
+        SD_BUS_PROPERTY("LastSeenTimestamp", "t", NULL, offsetof(Node, last_seen), SD_BUS_VTABLE_PROPERTY_EXPLICIT),
+        SD_BUS_PROPERTY("LastSeenTimestampMonotonic",
+                        "t",
+                        NULL,
+                        offsetof(Node, last_seen_monotonic),
+                        SD_BUS_VTABLE_PROPERTY_EXPLICIT),
         SD_BUS_VTABLE_END
 };
 
@@ -167,6 +170,7 @@ Node *node_new(Controller *controller, const char *name) {
         }
 
         node->last_seen = 0;
+        node->last_seen_monotonic = 0;
 
         node->name = NULL;
         if (name) {
@@ -524,14 +528,23 @@ static int node_match_job_done(UNUSED sd_bus_message *m, UNUSED void *userdata, 
 
 static int node_match_heartbeat(UNUSED sd_bus_message *m, void *userdata, UNUSED sd_bus_error *error) {
         Node *node = userdata;
+        uint64_t now = 0;
+        uint64_t now_monotonic = 0;
 
-        uint64_t now = get_time_micros();
-        if (now == 0) {
+        now = get_time_micros();
+        if (now == USEC_INFINITY) {
                 bc_log_error("Failed to get current time on heartbeat");
                 return 0;
         }
 
+        now_monotonic = get_time_micros_monotonic();
+        if (now_monotonic == USEC_INFINITY) {
+                bc_log_error("Failed to get current monotonic time on heartbeat");
+                return 0;
+        }
+
         node->last_seen = now;
+        node->last_seen_monotonic = now_monotonic;
         return 1;
 }
 
@@ -895,6 +908,7 @@ static int node_method_register(sd_bus_message *m, void *userdata, UNUSED sd_bus
         }
 
         named_node->last_seen = get_time_micros();
+        named_node->last_seen_monotonic = get_time_micros_monotonic();
 
         r = asprintf(&description, "node-%s", name);
         if (r >= 0) {
@@ -1057,19 +1071,6 @@ static int node_property_get_peer_ip(
         Node *node = userdata;
         return sd_bus_message_append(reply, "s", node->peer_ip);
 }
-
-static int node_property_get_last_seen(
-                UNUSED sd_bus *bus,
-                UNUSED const char *path,
-                UNUSED const char *interface,
-                UNUSED const char *property,
-                sd_bus_message *reply,
-                void *userdata,
-                UNUSED sd_bus_error *ret_error) {
-        Node *node = userdata;
-        return sd_bus_message_append(reply, "t", node->last_seen);
-}
-
 
 AgentRequest *agent_request_ref(AgentRequest *req) {
         req->ref_count++;

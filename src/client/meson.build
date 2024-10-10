@@ -9,13 +9,21 @@ client_src = [
   'main.c',
   'client.c',
   'method-help.c',
+  'method-is-enabled.c',
   'method-loglevel.c',
   'method-list-unit-files.c',
   'method-list-units.c',
   'method-metrics.c',
   'method-monitor.c',
-  'method-unit-actions.c',
-  'method-status.c'
+  'method-unit-lifecycle.c',
+  'method-status.c',
+  'method-kill.c',
+  'method-freeze-thaw.c',
+  'method-enable-disable.c',
+  'method-reset-failed.c',
+  'method-daemon-reload.c',
+  'method-default-target.c',
+  'usage.c',
 ]
 
 executable(

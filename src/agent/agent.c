@@ -122,10 +122,9 @@ static int agent_disconnected(UNUSED sd_bus_message *message, void *userdata, UN
         if (r < 0) {
                 bc_log_errorf("Failed to emit status property changed: %s", strerror(-r));
         }
-        r = get_time_seconds(&agent->disconnect_timestamp);
-        if (r < 0) {
-                bc_log_errorf("Failed to get current time on agent disconnect: %s", strerror(-r));
-        }
+
+        agent->disconnect_timestamp = get_time_micros();
+        agent->disconnect_timestamp_monotonic = get_time_micros_monotonic();
 
         /* try to reconnect right away */
         agent_reconnect(agent);
@@ -144,18 +143,18 @@ static bool agent_check_controller_liveness(Agent *agent) {
                 return true;
         }
 
-        now = get_time_micros();
-        if (now == 0) {
-                bc_log_error("Failed to get the time");
+        now = get_time_micros_monotonic();
+        if (now == USEC_INFINITY) {
+                bc_log_error("Failed to get the monotonic time");
                 return true;
         }
 
-        if (now < agent->controller_last_seen) {
+        if (now < agent->controller_last_seen_monotonic) {
                 bc_log_error("Clock skew detected");
                 return true;
         }
 
-        diff = now - agent->controller_last_seen;
+        diff = now - agent->controller_last_seen_monotonic;
         if (diff > (uint64_t) agent->controller_heartbeat_threshold_msec * USEC_PER_MSEC) {
                 bc_log_infof("Did not receive heartbeat from controller since '%d'ms. Disconnecting it...",
                              agent->controller_heartbeat_threshold_msec);
@@ -448,9 +447,11 @@ Agent *agent_new(void) {
         agent->connection_state = AGENT_CONNECTION_STATE_DISCONNECTED;
         agent->connection_retry_count = 0;
         agent->controller_last_seen = 0;
+        agent->controller_last_seen_monotonic = 0;
         agent->wildcard_subscription_active = false;
         agent->metrics_enabled = false;
         agent->disconnect_timestamp = 0;
+        agent->disconnect_timestamp_monotonic = 0;
         LIST_HEAD_INIT(agent->outstanding_requests);
         LIST_HEAD_INIT(agent->tracked_jobs);
         LIST_HEAD_INIT(agent->proxy_services);
@@ -1758,11 +1759,11 @@ static int agent_method_job_cancel(sd_bus_message *m, void *userdata, UNUSED sd_
         return sd_bus_reply_method_return(m, "");
 }
 
-
 static const sd_bus_vtable internal_agent_vtable[] = {
         SD_BUS_VTABLE_START(0),
         SD_BUS_METHOD("ListUnits", "", UNIT_INFO_STRUCT_ARRAY_TYPESTRING, agent_method_list_units, 0),
         SD_BUS_METHOD("ListUnitFiles", "", UNIT_FILE_INFO_STRUCT_ARRAY_TYPESTRING, agent_method_list_unit_files, 0),
+        SD_BUS_METHOD("GetUnitFileState", "s", "s", agent_method_passthrough_to_systemd, 0),
         SD_BUS_METHOD("GetUnitProperties", "ss", "a{sv}", agent_method_get_unit_properties, 0),
         SD_BUS_METHOD("GetUnitProperty", "sss", "v", agent_method_get_unit_property, 0),
         SD_BUS_METHOD("SetUnitProperties", "sba(sv)", "", agent_method_set_unit_properties, 0),
@@ -1778,6 +1779,16 @@ static const sd_bus_vtable internal_agent_vtable[] = {
         SD_BUS_METHOD("DisableMetrics", "", "", agent_method_disable_metrics, 0),
         SD_BUS_METHOD("SetLogLevel", "s", "", agent_method_set_log_level, 0),
         SD_BUS_METHOD("JobCancel", "u", "", agent_method_job_cancel, 0),
+        SD_BUS_METHOD("EnableUnitFiles", "asbb", "ba(sss)", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("DisableUnitFiles", "asb", "a(sss)", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("Reload", "", "", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("ResetFailed", "", "", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("ResetFailedUnit", "s", "", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("KillUnit", "ssi", "", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("StartDep", "s", "", agent_method_start_dep, 0),
+        SD_BUS_METHOD("StopDep", "s", "", agent_method_stop_dep, 0),
+        SD_BUS_METHOD("GetDefaultTarget", "", "s", agent_method_passthrough_to_systemd, 0),
+        SD_BUS_METHOD("SetDefaultTarget", "sb", "a(sss)", agent_method_passthrough_to_systemd, 0),
         SD_BUS_SIGNAL_WITH_NAMES("JobDone", "us", SD_BUS_PARAM(id) SD_BUS_PARAM(result), 0),
         SD_BUS_SIGNAL_WITH_NAMES("JobStateChanged", "us", SD_BUS_PARAM(id) SD_BUS_PARAM(state), 0),
         SD_BUS_SIGNAL_WITH_NAMES(
@@ -1794,11 +1805,6 @@ static const sd_bus_vtable internal_agent_vtable[] = {
                         0),
         SD_BUS_SIGNAL_WITH_NAMES("UnitRemoved", "s", SD_BUS_PARAM(unit), 0),
         SD_BUS_SIGNAL("Heartbeat", "", 0),
-        SD_BUS_METHOD("StartDep", "s", "", agent_method_start_dep, 0),
-        SD_BUS_METHOD("StopDep", "s", "", agent_method_stop_dep, 0),
-        SD_BUS_METHOD("EnableUnitFiles", "asbb", "ba(sss)", agent_method_passthrough_to_systemd, 0),
-        SD_BUS_METHOD("DisableUnitFiles", "asb", "a(sss)", agent_method_passthrough_to_systemd, 0),
-        SD_BUS_METHOD("Reload", "", "", agent_method_passthrough_to_systemd, 0),
         SD_BUS_VTABLE_END
 };
 
@@ -1964,23 +1970,6 @@ static int agent_property_get_status(
 }
 
 /*************************************************************************
- **** org.eclipse.bluechi.Agent.DisconnectTimestamp ****************
- *************************************************************************/
-
-static int agent_property_get_disconnect_timestamp(
-                UNUSED sd_bus *bus,
-                UNUSED const char *path,
-                UNUSED const char *interface,
-                UNUSED const char *property,
-                sd_bus_message *reply,
-                void *userdata,
-                UNUSED sd_bus_error *ret_error) {
-        Agent *agent = userdata;
-
-        return sd_bus_message_append(reply, "t", agent->disconnect_timestamp);
-}
-
-/*************************************************************************
  **** org.eclipse.bluechi.Agent.LogLevel ****************
  *************************************************************************/
 
@@ -2024,13 +2013,23 @@ static const sd_bus_vtable agent_vtable[] = {
         SD_BUS_PROPERTY("LogTarget", "s", agent_property_get_log_target, 0, SD_BUS_VTABLE_PROPERTY_CONST),
         SD_BUS_PROPERTY("DisconnectTimestamp",
                         "t",
-                        agent_property_get_disconnect_timestamp,
-                        0,
+                        NULL,
+                        offsetof(Agent, disconnect_timestamp),
+                        SD_BUS_VTABLE_PROPERTY_EXPLICIT),
+        SD_BUS_PROPERTY("DisconnectTimestampMonotonic",
+                        "t",
+                        NULL,
+                        offsetof(Agent, disconnect_timestamp_monotonic),
                         SD_BUS_VTABLE_PROPERTY_EXPLICIT),
         SD_BUS_PROPERTY("LastSeenTimestamp",
                         "t",
                         NULL,
                         offsetof(Agent, controller_last_seen),
+                        SD_BUS_VTABLE_PROPERTY_EXPLICIT),
+        SD_BUS_PROPERTY("LastSeenTimestampMonotonic",
+                        "t",
+                        NULL,
+                        offsetof(Agent, controller_last_seen_monotonic),
                         SD_BUS_VTABLE_PROPERTY_EXPLICIT),
         SD_BUS_PROPERTY("ControllerAddress",
                         "s",
@@ -2308,14 +2307,23 @@ static int agent_match_job_removed(sd_bus_message *m, void *userdata, UNUSED sd_
 
 static int agent_match_heartbeat(UNUSED sd_bus_message *m, void *userdata, UNUSED sd_bus_error *error) {
         Agent *agent = userdata;
+        uint64_t now = 0;
+        uint64_t now_monotonic = 0;
 
-        uint64_t now = get_time_micros();
-        if (now == 0) {
+        now = get_time_micros();
+        if (now == USEC_INFINITY) {
                 bc_log_error("Failed to get current time on heartbeat");
                 return 0;
         }
 
+        now_monotonic = get_time_micros_monotonic();
+        if (now_monotonic == USEC_INFINITY) {
+                bc_log_error("Failed to get current monotonic time on heartbeat");
+                return 0;
+        }
+
         agent->controller_last_seen = now;
+        agent->controller_last_seen_monotonic = now_monotonic;
         return 1;
 }
 
@@ -2730,7 +2738,9 @@ static bool agent_connect(Agent *agent) {
         agent->connection_state = AGENT_CONNECTION_STATE_CONNECTED;
         agent->connection_retry_count = 0;
         agent->controller_last_seen = get_time_micros();
+        agent->controller_last_seen_monotonic = get_time_micros_monotonic();
         agent->disconnect_timestamp = 0;
+        agent->disconnect_timestamp_monotonic = 0;
 
         r = sd_bus_emit_properties_changed(
                         agent->api_bus, BC_AGENT_OBJECT_PATH, AGENT_INTERFACE, "Status", NULL);

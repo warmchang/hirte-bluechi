@@ -21,6 +21,12 @@ Note that some properties also come with change events, so you can easily track 
     Returns an array with all currently loaded systemd units on all online nodes. This is equivalent to calling
     `Node.ListUnits()` on all the online nodes and adding the name of the node as the first element of each returned
     element struct.
+  
+  * `ListUnitFiles(out a(sss) unit_files)`
+
+    Returns an array with all systemd unit files on all online nodes. This is equivalent to calling
+    `Node.ListUnitFiles()` on all the online nodes and adding the name of the node as the first element of each returned
+    element struct.
 
   * `CreateMonitor(out o monitor)`
 
@@ -156,6 +162,14 @@ Object path: `/org/eclipse/bluechi/node/$name`
     `ReloadUnit()`/`RestartUnit()` is similar to `StartUnit()` but can be used to reload/restart a unit instead. See
     equivalent systemd methods for details.
 
+  * `ResetFailed()`
+
+        Equivalent to systemd method `ResetFailed`. This method will reset the failed state of all units on the node.
+
+  * `ResetFailedUnit(in  s name)`
+
+    Equivalent to systemd method `ResetFailedUnit`. This method will reset the failed state for a specific unit on the node.
+
   * `EnableUnitFiles(in  as files, in  b runtime, in  b force, out b carries_install_info, out a(sss) changes);`
 
     `EnableUnitFiles()` may be used to enable one or more units in the system (by creating symlinks to them in /etc/ or /run/).
@@ -172,6 +186,11 @@ Object path: `/org/eclipse/bluechi/node/$name`
 
     `DisableUnitFiles()` is similar to `EnableUnitFiles()` but
     disables the specified units by removing all symlinks to them in /etc/ and /run/
+
+  * `KillUnit(in s name, in s who, in i signal)`
+
+    Kills processes of a unit on a node.
+    If the who parameter is set to main, only the main process of a unit is killed. If control is used, then only the control process of the unit is killed. And if all is used, all processes are killed.
 
   * `GetUnitProperties(in s name, in s interface, out a{sv} props)`
 
@@ -191,6 +210,11 @@ Object path: `/org/eclipse/bluechi/node/$name`
 
     Returns all the currently loaded systemd units on this node. The returned structure is the same as the one returned
     by the systemd `ListUnits()` call.
+
+  * `ListUnitFiles(out a(ss) unit_files)`
+
+    Returns all the systemd unit files on this node. The returned structure is the same as the one returned
+    by the systemd `ListUnitFiles()` call.
 
   * `Reload()`
 
@@ -219,6 +243,10 @@ Object path: `/org/eclipse/bluechi/node/$name`
   * `LastSeenTimestamp` - `t`
 
     Timestamp of the last successfully received heartbeat of the node.
+
+  * `LastSeenTimestampMonotonic` - `t`
+
+    Monotonic Timestamp of the last successfully received heartbeat of the node.
 
 ### interface org.eclipse.bluechi.Job
 
@@ -334,9 +362,17 @@ This is the main interface that the node implements and that is used by the cont
 
   * `RestartUnit(in s name, in s mode, in u id)`
 
+  * `ResetFailed()`
+
+  * `ResetFailedUnit(in  s name)`
+
+  * `KillUnit(in s name, in s who, in i signal)`
+
   * `GetUnitProperties(in name, out a{sv} props)`
 
-  * `ListUnits(out a(ssssssouso) units);`
+  * `ListUnits(out a(ssssssouso) units)`
+
+  * `ListUnitFiles(out a(ss) units)`
 
     These are all API mirrors of the respective method in `org.eclipse.bluechi.Node`, and all they do is forward the
     same operation to the local systemd instance. Similarly, any changes in the systemd job will be forwarded to signals

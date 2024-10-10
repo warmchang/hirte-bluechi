@@ -3,76 +3,12 @@
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
-#include "method-unit-actions.h"
+#include "method-enable-disable.h"
 #include "client.h"
+#include "method-daemon-reload.h"
+#include "usage.h"
 
 #include "libbluechi/common/opt.h"
-
-static int method_lifecycle_action_on(Client *client, char *node_name, char *unit, char *method) {
-        _cleanup_sd_bus_error_ sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_sd_bus_message_ sd_bus_message *message = NULL;
-        _cleanup_sd_bus_message_ sd_bus_message *job_result = NULL;
-        char *job_path = NULL, *result = NULL, *node = NULL;
-        uint32_t id = 0;
-        int r = 0;
-
-        r = assemble_object_path_string(NODE_OBJECT_PATH_PREFIX, node_name, &client->object_path);
-        if (r < 0) {
-                return r;
-        }
-
-        r = sd_bus_match_signal(
-                        client->api_bus,
-                        NULL,
-                        BC_INTERFACE_BASE_NAME,
-                        BC_CONTROLLER_OBJECT_PATH,
-                        CONTROLLER_INTERFACE,
-                        "JobRemoved",
-                        match_job_removed_signal,
-                        client);
-
-        if (r < 0) {
-                fprintf(stderr, "Failed to match signal\n");
-                return r;
-        }
-
-        r = sd_bus_call_method(
-                        client->api_bus,
-                        BC_INTERFACE_BASE_NAME,
-                        client->object_path,
-                        NODE_INTERFACE,
-                        method,
-                        &error,
-                        &message,
-                        "ss",
-                        unit,
-                        "replace");
-        if (r < 0) {
-                fprintf(stderr, "Failed to issue method call: %s\n", error.message);
-                return r;
-        }
-
-        r = sd_bus_message_read(message, "o", &job_path);
-        if (r < 0) {
-                fprintf(stderr, "Failed to parse response message: %s\n", strerror(-r));
-                return r;
-        }
-
-        job_result = client_wait_for_job(client, job_path);
-        if (job_result == NULL) {
-                return -EIO;
-        }
-
-        r = sd_bus_message_read(job_result, "uosss", &id, &job_path, &node, &unit, &result);
-        if (r < 0) {
-                fprintf(stderr, "Can't parse job result\n");
-                return r;
-        }
-
-        printf("Unit %s %s operation result: %s\n", unit, method, result);
-
-        return r;
-}
 
 static int add_string_array_to_message(sd_bus_message *m, char **units, size_t units_count) {
         _cleanup_free_ char **units_array = NULL;
@@ -221,117 +157,6 @@ static int method_disable_unit_on(Client *client, char *node_name, char **units,
         return 0;
 }
 
-static int method_daemon_reload_on(Client *client, char *node_name) {
-        int r = 0;
-        _cleanup_sd_bus_error_ sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_sd_bus_message_ sd_bus_message *result = NULL;
-
-        r = assemble_object_path_string(NODE_OBJECT_PATH_PREFIX, node_name, &client->object_path);
-        if (r < 0) {
-                return r;
-        }
-
-        r = sd_bus_call_method(
-                        client->api_bus,
-                        BC_INTERFACE_BASE_NAME,
-                        client->object_path,
-                        NODE_INTERFACE,
-                        "Reload",
-                        &error,
-                        &result,
-                        "");
-        if (r < 0) {
-                fprintf(stderr, "Failed to issue method call: %s\n", error.message);
-                return r;
-        }
-
-        return 0;
-}
-
-static int method_freeze_unit_on(Client *client, char *node_name, char *unit) {
-        int r = 0;
-        _cleanup_sd_bus_error_ sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_sd_bus_message_ sd_bus_message *result = NULL;
-
-        r = assemble_object_path_string(NODE_OBJECT_PATH_PREFIX, node_name, &client->object_path);
-        if (r < 0) {
-                return r;
-        }
-
-        r = sd_bus_call_method(
-                        client->api_bus,
-                        BC_INTERFACE_BASE_NAME,
-                        client->object_path,
-                        NODE_INTERFACE,
-                        "FreezeUnit",
-                        &error,
-                        &result,
-                        "s",
-                        unit);
-        if (r < 0) {
-                fprintf(stderr, "Failed to issue method call: %s\n", error.message);
-                return r;
-        }
-
-        printf("Unit %s freeze operation done\n", unit);
-
-        return 0;
-}
-
-static int method_thaw_unit_on(Client *client, char *node_name, char *unit) {
-        int r = 0;
-        _cleanup_sd_bus_error_ sd_bus_error error = SD_BUS_ERROR_NULL;
-        _cleanup_sd_bus_message_ sd_bus_message *result = NULL;
-
-        r = assemble_object_path_string(NODE_OBJECT_PATH_PREFIX, node_name, &client->object_path);
-        if (r < 0) {
-                return r;
-        }
-
-        r = sd_bus_call_method(
-                        client->api_bus,
-                        BC_INTERFACE_BASE_NAME,
-                        client->object_path,
-                        NODE_INTERFACE,
-                        "ThawUnit",
-                        &error,
-                        &result,
-                        "s",
-                        unit);
-        if (r < 0) {
-                fprintf(stderr, "Failed to issue method call: %s\n", error.message);
-                return r;
-        }
-
-        printf("Unit %s thaw operation done\n", unit);
-
-        return 0;
-}
-
-int method_start(Command *command, void *userdata) {
-        return method_lifecycle_action_on(userdata, command->opargv[0], command->opargv[1], "StartUnit");
-}
-
-int method_stop(Command *command, void *userdata) {
-        return method_lifecycle_action_on(userdata, command->opargv[0], command->opargv[1], "StopUnit");
-}
-
-int method_restart(Command *command, void *userdata) {
-        return method_lifecycle_action_on(userdata, command->opargv[0], command->opargv[1], "RestartUnit");
-}
-
-int method_reload(Command *command, void *userdata) {
-        return method_lifecycle_action_on(userdata, command->opargv[0], command->opargv[1], "ReloadUnit");
-}
-
-int method_freeze(Command *command, void *userdata) {
-        return method_freeze_unit_on(userdata, command->opargv[0], command->opargv[1]);
-}
-
-int method_thaw(Command *command, void *userdata) {
-        return method_thaw_unit_on(userdata, command->opargv[0], command->opargv[1]);
-}
-
 int method_enable(Command *command, void *userdata) {
         int r = 0;
         r = method_enable_unit_on(
@@ -350,7 +175,7 @@ int method_enable(Command *command, void *userdata) {
         }
 
         if (!command_flag_exists(command, ARG_NO_RELOAD_SHORT)) {
-                r = method_daemon_reload_on(userdata, command->opargv[0]);
+                r = method_daemon_reload(command, userdata);
         }
 
         return r;
@@ -371,12 +196,32 @@ int method_disable(Command *command, void *userdata) {
                         strerror(-r));
         }
         if (!command_flag_exists(command, ARG_NO_RELOAD_SHORT)) {
-                r = method_daemon_reload_on(userdata, command->opargv[0]);
+                r = method_daemon_reload(command, userdata);
         }
 
         return r;
 }
 
-int method_daemon_reload(Command *command, void *userdata) {
-        return method_daemon_reload_on(userdata, command->opargv[0]);
+
+void usage_method_enable() {
+        usage_print_header();
+        usage_print_description("Enable a unit on a node");
+        usage_print_usage("bluechictl enable [nodename] [unit1, unit2, ...] [options]");
+        printf("\n");
+        printf("Available options:\n");
+        printf("  --%s \t shows this help message\n", ARG_HELP);
+        printf("  --%s \t if set, the changes don't persist after reboot \n", ARG_RUNTIME);
+        printf("  --%s \t if set, symlinks pointing to other units are replaced \n", ARG_FORCE);
+        printf("  --%s \t if set, no daemon-reload is triggered \n", ARG_NO_RELOAD);
+}
+
+void usage_method_disable() {
+        usage_print_header();
+        usage_print_description("Disable a unit on a node");
+        usage_print_usage("bluechictl disable [nodename] [unit1, unit2, ...] [options]");
+        printf("\n");
+        printf("Available options:\n");
+        printf("  --%s \t shows this help message\n", ARG_HELP);
+        printf("  --%s \t if set, the changes don't persist after reboot \n", ARG_RUNTIME);
+        printf("  --%s \t if set, no daemon-reload is triggered \n", ARG_NO_RELOAD);
 }

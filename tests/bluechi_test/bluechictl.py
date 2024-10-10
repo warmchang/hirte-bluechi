@@ -33,7 +33,6 @@ class BluechiCtl:
     ) -> Tuple[Optional[int], Union[Iterator[bytes], Any, Tuple[bytes, bytes]]]:
         LOGGER.debug(log_txt)
         result, output = self.client.exec_run(f"{BluechiCtl.binary_name} {cmd}")
-        LOGGER.debug(f"{log_txt} finished with result '{result}' and output '{output}'")
         if check_result and result != expected_result:
             raise Exception(
                 f"{log_txt} failed with {result} (expected {expected_result}): {output}"
@@ -69,6 +68,25 @@ class BluechiCtl:
         return self._run(
             "Listing unit files on all nodes",
             "list-unit-files",
+            check_result,
+            expected_result,
+        )
+
+    def is_enabled(
+        self,
+        node_name: str,
+        unit_name: str,
+        check_result: bool = False,
+        expected_result: int = 0,
+    ) -> Tuple[Optional[int], Union[Iterator[bytes], Any, Tuple[bytes, bytes]]]:
+        # track started units to stop and reset failures on cleanup
+        if node_name not in self.tracked_services:
+            self.tracked_services[node_name] = []
+        self.tracked_services[node_name].append(unit_name)
+
+        return self._run(
+            f"Fetching enablement status of unit '{unit_name}' on node '{node_name}'",
+            f"is-enabled {node_name} {unit_name}",
             check_result,
             expected_result,
         )
@@ -131,6 +149,72 @@ class BluechiCtl:
         return self._run(
             f"Reloading unit {unit_name} on node {node_name}",
             f"reload {node_name} {unit_name}",
+            check_result,
+            expected_result,
+        )
+
+    def reset_failed(
+        self,
+        node_name: str = "",
+        units: List[str] = [],
+        check_result: bool = True,
+        expected_result: int = 0,
+    ) -> Tuple[Optional[int], Union[Iterator[bytes], Any, Tuple[bytes, bytes]]]:
+        cmd = f"reset-failed {node_name} {' '.join(units)}".strip()
+        return self._run(
+            f"ResetFailed on node {node_name} for units {units}",
+            cmd,
+            check_result,
+            expected_result,
+        )
+
+    def get_default_target(
+        self,
+        node_name: str = "",
+        check_result: bool = True,
+        expected_result: int = 0,
+    ) -> Tuple[Optional[int], Union[Iterator[bytes], Any, Tuple[bytes, bytes]]]:
+        cmd = f"get-default {node_name}"
+        return self._run(
+            f"GetDefaultTarget of node {node_name}",
+            cmd,
+            check_result,
+            expected_result,
+        )
+
+    def set_default_target(
+        self,
+        node_name: str = "",
+        target: str = "",
+        check_result: bool = True,
+        expected_result: int = 0,
+    ) -> Tuple[Optional[int], Union[Iterator[bytes], Any, Tuple[bytes, bytes]]]:
+        cmd = f"set-default {node_name} {target} true"
+        return self._run(
+            f"SetDefaultTarget of node {node_name} ",
+            cmd,
+            check_result,
+            expected_result,
+        )
+
+    def kill_unit(
+        self,
+        node_name: str,
+        unit_name: str,
+        whom: str = "",
+        signal: str = "",
+        check_result: bool = True,
+        expected_result: int = 0,
+    ) -> Tuple[Optional[int], Union[Iterator[bytes], Any, Tuple[bytes, bytes]]]:
+        cmd = f"kill {node_name} {unit_name}"
+        if whom != "":
+            cmd = cmd + f" --kill-whom={whom}"
+        if signal != "":
+            cmd = cmd + f" --signal={signal}"
+
+        return self._run(
+            f"Killing unit {unit_name} on node {node_name} with whom='{whom}' and signal='{signal}'",
+            cmd,
             check_result,
             expected_result,
         )

@@ -187,6 +187,16 @@ class Agent(ApiBase):
         return self.get_proxy().DisconnectTimestamp
 
     @property
+    def disconnect_timestamp_monotonic(self) -> UInt64:
+        """
+          DisconnectTimestampMonotonic:
+
+        A monotonic timestamp indicating when the agent lost connection to the BlueChi controller.
+        If the connection is active (agent is online), this value is 0.
+        """
+        return self.get_proxy().DisconnectTimestampMonotonic
+
+    @property
     def last_seen_timestamp(self) -> UInt64:
         """
           LastSeenTimestamp:
@@ -194,6 +204,15 @@ class Agent(ApiBase):
         A timestamp indicating when the last connection test (e.g. via heartbeat) was successful.
         """
         return self.get_proxy().LastSeenTimestamp
+
+    @property
+    def last_seen_timestamp_monotonic(self) -> UInt64:
+        """
+          LastSeenTimestampMonotonic:
+
+        A monotonic timestamp indicating when the last connection test (e.g. via heartbeat) was successful.
+        """
+        return self.get_proxy().LastSeenTimestampMonotonic
 
     @property
     def log_level(self) -> str:
@@ -880,14 +899,35 @@ class Node(ApiBase):
             name,
         )
 
+    def get_default_target(self) -> str:
+        """
+          GetDefaultTarget:
+        @defaulttarget the default target.
+
+        Get the default value of the system to boot into.
+        """
+        return self.get_proxy().GetDefaultTarget()
+
+    def get_unit_file_state(self, file: str) -> str:
+        """
+          GetUnitFileState:
+        @file: The name of the unit file
+        @state: The current enablement status of the unit file
+
+        Get the current enablement status of specific unit file.
+        """
+        return self.get_proxy().GetUnitFileState(
+            file,
+        )
+
     def get_unit_properties(self, name: str, interface: str) -> Structure:
         """
           GetUnitProperties:
         @name: The name of unit
         @interface: The interface name
-        @props: The  as key-value pair with the name of the property as key
+        @props: The properties as key-value pair with the name of the property as key
 
-        Returns the current  for a named unit on the node. The returned  are the same as you would get in the systemd  apis.
+        Returns the current for a named unit on the node. The returned are the same as you would get in the systemd apis.
         """
         return self.get_proxy().GetUnitProperties(
             name,
@@ -908,6 +948,23 @@ class Node(ApiBase):
             name,
             interface,
             property,
+        )
+
+    def kill_unit(self, name: str, who: str, signal: Int32) -> None:
+        """
+            KillUnit:
+          @name: The name of the unit to kill
+          @who: One of [main, control, all]
+          @signal: Unix signal number
+
+          Kills processes of a unit on a node.
+          If the who parameter is set to main, only the main process of a unit is killed. If control is used, then only the control process of the unit is
+        killed. And if all is used, all processes are killed.
+        """
+        self.get_proxy().KillUnit(
+            name,
+            who,
+            signal,
         )
 
     def list_unit_files(self) -> List[Tuple[str, str]]:
@@ -963,6 +1020,23 @@ class Node(ApiBase):
             mode,
         )
 
+    def reset_failed(self) -> None:
+        """
+          ResetFailed:
+        Reset all the failed units on the node
+        """
+        self.get_proxy().ResetFailed()
+
+    def reset_failed_unit(self, name: str) -> None:
+        """
+          ResetFailedUnit:
+        Reset the failed state of a specific unit on the node.
+        @name Name of the unit to reset the failed state for.
+        """
+        self.get_proxy().ResetFailedUnit(
+            name,
+        )
+
     def restart_unit(self, name: str, mode: str) -> ObjPath:
         """
           RestartUnit:
@@ -975,6 +1049,22 @@ class Node(ApiBase):
         return self.get_proxy().RestartUnit(
             name,
             mode,
+        )
+
+    def set_default_target(
+        self, defaulttarget: str, force: bool
+    ) -> List[Tuple[str, str, str]]:
+        """
+          SetDefaultTarget:
+        @defaulttarget the default target.
+        @force bollean value of force.
+        @out the result of the method.
+
+        Set the default value of the system to boot into.
+        """
+        return self.get_proxy().SetDefaultTarget(
+            defaulttarget,
+            force,
         )
 
     def set_log_level(self, level: str) -> None:
@@ -997,7 +1087,7 @@ class Node(ApiBase):
         @runtime: Specify if the changes should persist after reboot or not
         @keyvalues: A list of the new values as key-value pair with the key being the name of the property
 
-        Set named . If runtime is true the property changes do not persist across reboots.
+        Set named properties. If runtime is true the property changes do not persist across reboots.
         """
         self.get_proxy().SetUnitProperties(
             name,
@@ -1057,6 +1147,15 @@ class Node(ApiBase):
         A timestamp indicating when the last connection test (e.g. via heartbeat) was successful.
         """
         return self.get_proxy().LastSeenTimestamp
+
+    @property
+    def last_seen_timestamp_monotonic(self) -> UInt64:
+        """
+          LastSeenTimestampMonotonic:
+
+        A monotonic timestamp indicating when the last connection test (e.g. via heartbeat) was successful.
+        """
+        return self.get_proxy().LastSeenTimestampMonotonic
 
     @property
     def name(self) -> str:

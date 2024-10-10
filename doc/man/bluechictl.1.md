@@ -30,6 +30,21 @@ Print current bluechictl version
 
 Performs one of the listed lifecycle operations on the given systemd unit for the `bluechi-agent`.
 
+### **bluechictl** [*kill*] [*agent*] [*unit*]
+
+Kills the processes of (i.e. sends a signal to) the specified unit on the chosen node.
+
+**Options:**
+
+**--kill-whom**
+    Enum defining which processes of the unit are killed.
+    Needs to be one of [all, main, control]. Default: all
+
+**--signal**
+    The signal sent to kill the processes of the unit.
+    Default: 15 (SIGTERM)
+
+
 ### **bluechictl** [*enable*] [*agent*] [*unit1*,*...*]
 
 Enable the list of systemd unit files for the `bluechi-agent`.
@@ -56,7 +71,7 @@ Disable the list of systemd unit files for the `bluechi-agent`.
 **--no-reload**
     Don't reload daemon after disabling unit files
 
-### **bluechictl** *list-units-files* [*agent*]
+### **bluechictl** *list-unit-files* [*agent*]
 
 Fetches information about all systemd unit files on the bluechi-agents. If [bluechi-agent] is not specified, all agents are queried.
 
@@ -64,6 +79,10 @@ Fetches information about all systemd unit files on the bluechi-agents. If [blue
 
 **--filter**
     Use glob filter for the unit file path
+
+### **bluechictl** *is-enabled* [*agent*] [*unit*]
+
+Fetches the current enablement status of the specific unit file on the specific `bluechi-agent`.
 
 ### **bluechictl** *list-units* [*agent*]
 
@@ -113,3 +132,15 @@ bluechictl status -w
 ### **bluechictl** *status* [*agent*] [*unit1*,*...*]
 
 Fetches the status of the systemd units for the `bluechi-agent`.
+
+### **bluechictl** *reset-failed* [*agent*] [*unit1*,*...*]
+
+Performs a `reset-failed` on the chosen `bluechi-agent` for the selected units.
+
+### **bluechictl** *get-default* [*agent*] 
+
+Fetches the default target on the chosen `bluechi-agent`.
+
+### **bluechictl** *set-default* [*agent*] [TARGET]
+
+Changes the default target to `TARGET` file on the chosen `bluechi-agent`.
